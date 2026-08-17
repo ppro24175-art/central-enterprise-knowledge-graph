@@ -183,7 +183,22 @@ export function applyCoverageFallbacks(enterprises) {
   });
 }
 
-const organizationKey = (value) => String(value || '').replace(/[（）()\[\]【】\s·、,，.。-]/g, '').replace(/(有限责任公司|股份有限公司|有限公司|集团公司|集团)$/g, '');
+const organizationKey = (value) => {
+  let normalized = String(value || '').replace(/[（）()\[\]【】\s·、,，.。-]/g, '');
+  let previous = '';
+  while (normalized !== previous) {
+    previous = normalized;
+    normalized = normalized.replace(/(有限责任公司|股份有限公司|有限公司|集团公司|集团)$/g, '');
+  }
+  return normalized;
+};
+
+const organizationAliases = (value) => {
+  const raw = String(value || '').trim();
+  const aliases = [raw.split(/[【[［]/)[0]];
+  for (const match of raw.matchAll(/[【[［]([^】\]］]+)[】\]］]/g)) aliases.push(match[1]);
+  return [...new Set(aliases.map(organizationKey).filter(Boolean))];
+};
 
 const instituteCodes = (value) => new Set(
   [...String(value || '').matchAll(/(?:第)?[0-9〇零一二三四五六七八九十]{1,5}(?:院|所)/g)]
@@ -230,10 +245,20 @@ const resolveSecondaryParent = (row, candidates, group) => {
   return best && best.score >= 4 && best.score > runnerUp.score ? best.item : null;
 };
 
-export function mergeOrganizationalUnits(groups, secondaryRows, tertiaryRows) {
+export function mergeOrganizationalUnits(groups, secondaryRows, tertiaryRows, associationRows = []) {
   const entities = groups.map((item) => ({ ...item, parentId: '', parentName: '', group: item.name }));
   const groupByName = new Map(groups.map((item) => [item.name, item]));
+  const groupByKey = new Map(groups.map((item) => [organizationKey(item.name), item]));
+  const resolveGroup = (groupName) => groupByName.get(groupName) || organizationAliases(groupName).map((key) => groupByKey.get(key)).find(Boolean);
   const secondaryByGroup = new Map();
+  const associationParents = new Map();
+  const associationKey = (groupName, tertiaryName) => `${organizationKey(groupName)}::${organizationKey(tertiaryName)}`;
+  const directParents = new Map();
+  associationRows.forEach((row) => {
+    const parentName = String(row.parentName || '').trim();
+    if (!parentName || parentName.includes('按集团归类') || String(row.method || '').includes('按集团归类')) return;
+    organizationAliases(row.groupName).forEach((groupKey) => directParents.set(`${groupKey}::${organizationKey(row.tertiaryName)}`, parentName));
+  });
   const createUnit = (source, index, level, parent, group) => ({
     id: `${level === '二级单位' ? 'SEC' : 'TER'}-${group.id}-${String(index + 1).padStart(4, '0')}`,
     name: source.name,
@@ -250,15 +275,26 @@ export function mergeOrganizationalUnits(groups, secondaryRows, tertiaryRows) {
     cooperationStatus: '未注明', salesDepartment: '未注明', sales: '未注明', sapStatus: '未见明确公开披露', sapProducts: '未见明确公开披露', sapScenario: '未见明确公开披露', projectTime: '未见明确公开披露', dataPlatform: '未见明确公开披露', dataPlatformStatus: '未检索到', dataPlatformConfidence: '低', dataPlatformSourceTitle: '', dataPlatformSourceUrl: '', dataPlatformAccessedOn: '', dataPlatformNote: '', publicResearchSources: {}, coverageStatus: 'Excel导入', sourceName: 'Excel导入', sourceUrl: '', dataYear: '未注明', confidence: '中', sourceFile: '组织架构 Excel', sourceSheet: '', sourceRow: index + 2,
   });
   secondaryRows.forEach((row, index) => {
-    const group = groupByName.get(row.groupName); if (!group || !row.name) return;
+    const group = resolveGroup(row.groupName); if (!group || !row.name) return;
     const entity = createUnit(row, index, '二级单位', group, group); entities.push(entity);
     if (!secondaryByGroup.has(group.id)) secondaryByGroup.set(group.id, []); secondaryByGroup.get(group.id).push(entity);
   });
   const fallbacks = new Map();
   tertiaryRows.forEach((row, index) => {
-    const group = groupByName.get(row.groupName); if (!group || !row.name) return;
+    const group = resolveGroup(row.groupName); if (!group || !row.name) return;
     const candidates = secondaryByGroup.get(group.id) || [];
-    let parent = resolveSecondaryParent(row, candidates, group);
+    const directParentName = directParents.get(associationKey(group.name, row.name));
+    let parent = directParentName ? candidates.find((item) => organizationKey(item.name) === organizationKey(directParentName)) : null;
+    if (directParentName && !parent) {
+      const parentKey = `${group.id}::${organizationKey(directParentName)}`;
+      parent = associationParents.get(parentKey);
+      if (!parent) {
+        parent = createUnit({ name: directParentName, industry: row.industry, business: '关联表明确二级父单位' }, 20000 + associationParents.size, '二级单位', group, group);
+        parent.id = `SEC-${group.id}-ASSOC-${slug(organizationKey(directParentName))}`;
+        entities.push(parent); associationParents.set(parentKey, parent); candidates.push(parent);
+      }
+    }
+    if (!parent && !directParentName) parent = resolveSecondaryParent(row, candidates, group);
     if (!parent) { if (!fallbacks.has(group.id)) { const fallback = createUnit({ name: '其他直属/待归属二级单位', industry: group.industry, business: '三级单位汇总承接' }, 9999, '二级单位', group, group); fallback.id = `SEC-${group.id}-OTHER`; entities.push(fallback); fallbacks.set(group.id, fallback); } parent = fallbacks.get(group.id); }
     entities.push(createUnit(row, index, '三级单位', parent, group));
   });
