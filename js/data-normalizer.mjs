@@ -1,4 +1,4 @@
-const unavailable = new Set(['', '-', '--', '无', '暂无', '待补充', '未提供', 'null', 'undefined']);
+const unavailable = new Set(['', '-', '--', '无', '暂无', '待补充', '未提供', '未上市', '未上市/未注明', 'null', 'undefined']);
 
 const fieldAliases = {
   id: ['客户编号', '企业ID', '企业编号', '统一社会信用代码'],
@@ -181,6 +181,43 @@ export function applyCoverageFallbacks(enterprises) {
     if (!available(merged.dataYear)) merged.dataYear = '未注明（公开资料归纳）';
     return merged;
   });
+}
+
+const organizationKey = (value) => String(value || '').replace(/[（）()\[\]【】\s·、,，.。-]/g, '').replace(/(有限责任公司|股份有限公司|有限公司|集团公司|集团)$/g, '');
+
+export function mergeOrganizationalUnits(groups, secondaryRows, tertiaryRows) {
+  const entities = groups.map((item) => ({ ...item, parentId: '', parentName: '', group: item.name }));
+  const groupByName = new Map(groups.map((item) => [item.name, item]));
+  const secondaryByGroup = new Map();
+  const createUnit = (source, index, level, parent, group) => ({
+    id: `${level === '二级单位' ? 'SEC' : 'TER'}-${group.id}-${String(index + 1).padStart(4, '0')}`,
+    name: source.name,
+    type: level === '二级单位' ? 'secondary' : 'tertiary',
+    level,
+    parentId: parent.id,
+    parentName: parent.name,
+    group: group.name,
+    industry: source.industry || group.industry || '其他',
+    subIndustry: source.subIndustry || group.subIndustry || '其他',
+    region: source.region || group.region || '未注明',
+    established: source.established || '未注明', assets: source.assets || '未注明', assetYear: source.assetYear || '未注明', revenue: source.revenue || '未注明', revenueYear: source.revenueYear || '未注明', employees: source.employees || '未注明', creditRating: source.creditRating || '未注明',
+    listingPlatform: source.listed === '是' ? source.name : '未上市', stockCode: source.stockCode || '未注明', business: source.business || '未注明',
+    cooperationStatus: '未注明', salesDepartment: '未注明', sales: '未注明', sapStatus: '未见明确公开披露', sapProducts: '未见明确公开披露', sapScenario: '未见明确公开披露', projectTime: '未见明确公开披露', dataPlatform: '未见明确公开披露', dataPlatformStatus: '未检索到', dataPlatformConfidence: '低', dataPlatformSourceTitle: '', dataPlatformSourceUrl: '', dataPlatformAccessedOn: '', dataPlatformNote: '', publicResearchSources: {}, coverageStatus: 'Excel导入', sourceName: 'Excel导入', sourceUrl: '', dataYear: '未注明', confidence: '中', sourceFile: '组织架构 Excel', sourceSheet: '', sourceRow: index + 2,
+  });
+  secondaryRows.forEach((row, index) => {
+    const group = groupByName.get(row.groupName); if (!group || !row.name) return;
+    const entity = createUnit(row, index, '二级单位', group, group); entities.push(entity);
+    if (!secondaryByGroup.has(group.id)) secondaryByGroup.set(group.id, []); secondaryByGroup.get(group.id).push(entity);
+  });
+  const fallbacks = new Map();
+  tertiaryRows.forEach((row, index) => {
+    const group = groupByName.get(row.groupName); if (!group || !row.name) return;
+    const candidates = secondaryByGroup.get(group.id) || []; const key = organizationKey(row.name);
+    let parent = candidates.find((item) => { const candidateKey = organizationKey(item.name); return candidateKey.length > 2 && (key.includes(candidateKey) || candidateKey.includes(key)); });
+    if (!parent) { if (!fallbacks.has(group.id)) { const fallback = createUnit({ name: '其他直属/待归属二级单位', industry: group.industry, business: '三级单位汇总承接' }, 9999, '二级单位', group, group); fallback.id = `SEC-${group.id}-OTHER`; entities.push(fallback); fallbacks.set(group.id, fallback); } parent = fallbacks.get(group.id); }
+    entities.push(createUnit(row, index, '三级单位', parent, group));
+  });
+  return entities;
 }
 
 const countLevel = (enterprises, level) => enterprises.filter((item) => item.level === level).length;
