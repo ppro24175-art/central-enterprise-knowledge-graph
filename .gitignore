@@ -1,0 +1,5 @@
+*.inspect.ndjson
+*.xlsx
+.artifact-runtime/
+node_modules/
+.DS_Store
