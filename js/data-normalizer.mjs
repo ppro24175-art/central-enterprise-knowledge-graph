@@ -185,6 +185,51 @@ export function applyCoverageFallbacks(enterprises) {
 
 const organizationKey = (value) => String(value || '').replace(/[（）()\[\]【】\s·、,，.。-]/g, '').replace(/(有限责任公司|股份有限公司|有限公司|集团公司|集团)$/g, '');
 
+const instituteCodes = (value) => new Set(
+  [...String(value || '').matchAll(/(?:第)?[0-9〇零一二三四五六七八九十]{1,5}(?:院|所)/g)]
+    .map((match) => match[0].replace(/^第/, '').replace(/[〇零]/g, '0').replace(/[一二三四五六七八九]/g, (digit) => ({ 一: '1', 二: '2', 三: '3', 四: '4', 五: '5', 六: '6', 七: '7', 八: '8', 九: '9' }[digit]))),
+);
+
+const distinctiveName = (value, groupName) => {
+  let result = organizationKey(value);
+  const groupKey = organizationKey(groupName).replace(/有限公司$/g, '');
+  if (groupKey) result = result.replaceAll(groupKey, '');
+  return result.replace(/中国|集团|公司|有限|股份|责任|工业|航天|航空|技术|研究|院|所|中心|控股|投资|发展|建设|工程|服务|产业|科技|国际|综合/g, '');
+};
+
+const longestSharedSegment = (left, right) => {
+  let longest = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    for (let candidate = 0; candidate < right.length; candidate += 1) {
+      let length = 0;
+      while (left[index + length] && left[index + length] === right[candidate + length]) length += 1;
+      longest = Math.max(longest, length);
+    }
+  }
+  return longest;
+};
+
+const resolveSecondaryParent = (row, candidates, group) => {
+  const key = organizationKey(row.name);
+  const direct = candidates.find((item) => {
+    const candidateKey = organizationKey(item.name);
+    return candidateKey.length > 2 && (key.includes(candidateKey) || candidateKey.includes(key));
+  });
+  if (direct) return direct;
+
+  const childCodes = instituteCodes(row.name);
+  const codeMatches = candidates.filter((item) => [...childCodes].some((code) => instituteCodes(item.name).has(code)));
+  if (codeMatches.length === 1) return codeMatches[0];
+
+  const childName = distinctiveName(row.name, group.name);
+  if (childName.length < 4) return null;
+  const ranked = candidates
+    .map((item) => ({ item, score: longestSharedSegment(childName, distinctiveName(item.name, group.name)) }))
+    .sort((left, right) => right.score - left.score);
+  const [best, runnerUp = { score: 0 }] = ranked;
+  return best && best.score >= 4 && best.score > runnerUp.score ? best.item : null;
+};
+
 export function mergeOrganizationalUnits(groups, secondaryRows, tertiaryRows) {
   const entities = groups.map((item) => ({ ...item, parentId: '', parentName: '', group: item.name }));
   const groupByName = new Map(groups.map((item) => [item.name, item]));
@@ -212,8 +257,8 @@ export function mergeOrganizationalUnits(groups, secondaryRows, tertiaryRows) {
   const fallbacks = new Map();
   tertiaryRows.forEach((row, index) => {
     const group = groupByName.get(row.groupName); if (!group || !row.name) return;
-    const candidates = secondaryByGroup.get(group.id) || []; const key = organizationKey(row.name);
-    let parent = candidates.find((item) => { const candidateKey = organizationKey(item.name); return candidateKey.length > 2 && (key.includes(candidateKey) || candidateKey.includes(key)); });
+    const candidates = secondaryByGroup.get(group.id) || [];
+    let parent = resolveSecondaryParent(row, candidates, group);
     if (!parent) { if (!fallbacks.has(group.id)) { const fallback = createUnit({ name: '其他直属/待归属二级单位', industry: group.industry, business: '三级单位汇总承接' }, 9999, '二级单位', group, group); fallback.id = `SEC-${group.id}-OTHER`; entities.push(fallback); fallbacks.set(group.id, fallback); } parent = fallbacks.get(group.id); }
     entities.push(createUnit(row, index, '三级单位', parent, group));
   });
