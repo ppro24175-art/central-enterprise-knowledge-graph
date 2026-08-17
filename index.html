@@ -17,7 +17,6 @@
         <div class="stat"><span>行业类别</span><strong id="statIndustries">--</strong></div>
         <div class="stat"><span>总部所在地</span><strong id="statRegions">--</strong></div>
         <div class="stat"><span>上市平台</span><strong id="statListings">--</strong></div>
-        <div class="stat"><span>大数据平台已记录</span><strong id="statPlatforms">--</strong></div>
       </div>
     </header>
 
@@ -31,7 +30,7 @@
       </section>
       <section class="control-section">
         <h2>属性查询</h2>
-        <div class="attribute-query"><select id="attributeSelect"><option value="all">-- 选择查询属性 --</option><option value="industry">行业</option><option value="region">地区</option><option value="level">企业层级</option><option value="assets">资产规模</option><option value="revenue">营收规模</option><option value="employees">员工人数</option><option value="creditRating">信用评级</option><option value="listingPlatform">上市情况</option><option value="dataPlatform">大数据平台</option><option value="dataPlatformStatus">平台证据状态</option><option value="sapStatus">SAP使用情况</option><option value="sapProducts">HANA使用情况</option></select></div>
+        <div class="attribute-query"><select id="attributeSelect"><option value="all">-- 选择查询属性 --</option><option value="industry">行业</option><option value="region">地区</option><option value="level">企业层级</option><option value="assets">资产规模</option><option value="revenue">营收规模</option><option value="employees">员工人数</option><option value="creditRating">信用评级</option><option value="listingPlatform">上市情况</option></select></div>
       </section>
       <section class="control-section">
         <h2>企业层级筛选</h2><div class="chips" id="levelChips"></div>
@@ -42,9 +41,6 @@
       <section class="control-section">
         <h2>总部所在地</h2><div class="chips emptyable" id="regionChips"></div>
       </section>
-      <section class="control-section">
-        <h2>平台证据状态</h2><div class="chips" id="platformStatusChips"></div>
-      </section>
       <section class="control-section results-section">
         <h2>查询结果</h2><p class="result-count" id="resultCount">共 0 家企业</p><div class="result-list" id="resultList"></div>
       </section>
@@ -52,7 +48,7 @@
 
     <main class="workspace">
       <section class="graph-view" id="graphView">
-        <div class="graph-toolbar"><div class="legend"><span class="legend-title">图谱说明</span><button data-legend="group"><i class="dot group"></i>央企集团</button><button data-legend="secondary"><i class="dot secondary"></i>二级单位</button><button data-legend="tertiary"><i class="dot tertiary"></i>三级单位</button><button data-legend="industry"><i class="dot industry"></i>大行业</button><button data-legend="region"><i class="dot region"></i>总部所在地</button><button data-legend="listing"><i class="dot listing"></i>上市公司</button><button data-legend="platform"><i class="dot platform sap"></i>大数据平台</button><button data-legend="sap"><i class="dot sap"></i>SAP/HANA</button></div>
+        <div class="graph-toolbar"><div class="legend"><span class="legend-title">图谱说明</span><button data-legend="group"><i class="dot group"></i>央企集团</button><button data-legend="secondary"><i class="dot secondary"></i>二级单位</button><button data-legend="tertiary"><i class="dot tertiary"></i>三级单位</button><button data-legend="industry"><i class="dot industry"></i>大行业</button><button data-legend="region"><i class="dot region"></i>总部所在地</button><button data-legend="listing"><i class="dot listing"></i>上市公司</button></div>
           <div class="canvas-actions"><button id="expandAll" title="展开全部">⊞</button><button id="collapseAll" title="收起全部">⊟</button><button id="fitView" title="适应屏幕">⛶</button><button id="resetView" title="恢复视图">↻</button></div>
         </div>
         <canvas id="graphCanvas" aria-label="央企知识图谱交互画布"></canvas><div class="graph-tooltip" id="graphTooltip"></div>

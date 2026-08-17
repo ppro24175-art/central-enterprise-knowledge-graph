@@ -18,21 +18,22 @@
   });
 
   const state = {
-    view: 'graph', expandedIds: new Set(), levels: new Set(), industries: new Set(), regions: new Set(), platformStatuses: new Set(),
+    view: 'graph', expandedIds: new Set(), levels: new Set(), industries: new Set(), regions: new Set(),
     search: '', attribute: 'all', selectedId: '', hoveredType: '', page: 1, pageSize: 12, sortKey: 'name', sortDirection: 1,
   };
-  const palette = { group: '#ff6676', secondary: '#4e9cff', tertiary: '#a687ff', other: '#86a6cf', industry: '#ffb531', region: '#30dada', listing: '#54de9a', platform: '#e78cff', sap: '#b483ff' };
-  const radius = { group: 13, secondary: 10, tertiary: 8, other: 8, industry: 18, region: 15, listing: 13, platform: 14, sap: 13 };
+  const palette = { group: '#ff6676', secondary: '#4e9cff', tertiary: '#a687ff', other: '#86a6cf', industry: '#ffb531', region: '#30dada', listing: '#54de9a' };
+  const radius = { group: 13, secondary: 10, tertiary: 8, other: 8, industry: 18, region: 15, listing: 13 };
   let visibleNodes = [], visibleEdges = [], simulation = new Map();
   let viewport = { x: 0, y: 0, zoom: 1 }, activePointer = null, dragNode = null, hovering = '', hoverEdge = null, frame = 0;
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
-  const available = (value) => value && !['待补充', '未提供', '', '-', '--'].includes(String(value).trim());
+  const unavailableValues = new Set(['待补充', '未提供', '未注明', '暂无', '无', '未检索到', '未见明确公开披露', '', '-', '--']);
+  const available = (value) => value && !unavailableValues.has(String(value).trim());
   const abbreviate = (text, length = 15) => String(text || '').length > length ? `${String(text).slice(0, length)}…` : String(text || '');
   const hash = (value) => [...String(value)].reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0) >>> 0;
 
   function setStatistics() {
-    const mapping = [['statGroups', graph.stats.groups], ['statSecondary', graph.stats.secondary], ['statTertiary', graph.stats.tertiary], ['statIndustries', graph.stats.industries], ['statRegions', graph.stats.regions], ['statListings', graph.stats.listings], ['statPlatforms', graph.stats.platformRecorded || 0]];
+    const mapping = [['statGroups', graph.stats.groups], ['statSecondary', graph.stats.secondary], ['statTertiary', graph.stats.tertiary], ['statIndustries', graph.stats.industries], ['statRegions', graph.stats.regions], ['statListings', graph.stats.listings]];
     mapping.forEach(([id, value]) => { $(`#${id}`).textContent = value; });
   }
 
@@ -49,7 +50,6 @@
     createChips('#levelChips', ['央企集团', '二级单位', '三级单位', '上市公司'], state.levels);
     createChips('#industryChips', [...new Set(graph.enterprises.map((item) => item.industry).filter(available))].sort(), state.industries);
     createChips('#regionChips', [...new Set(graph.enterprises.map((item) => item.region).filter(available))].sort(), state.regions);
-    createChips('#platformStatusChips', ['已披露', '建设中', '待核验', '未检索到'].filter((status) => graph.enterprises.some((item) => item.dataPlatformStatus === status)), state.platformStatuses);
     renderSearchResults(); renderTable();
   }
 
@@ -57,17 +57,22 @@
     const levelMatch = state.levels.size === 0 || state.levels.has(item.level) || (state.levels.has('上市公司') && available(item.listingPlatform));
     const industryMatch = state.industries.size === 0 || state.industries.has(item.industry);
     const regionMatch = state.regions.size === 0 || state.regions.has(item.region);
-    const platformStatusMatch = state.platformStatuses.size === 0 || state.platformStatuses.has(item.dataPlatformStatus);
     const search = state.search.trim().toLowerCase();
-    if (!search) return levelMatch && industryMatch && regionMatch && platformStatusMatch;
-    const source = state.attribute === 'all' ? Object.values(item).join(' ') : String(item[state.attribute] ?? '');
-    return levelMatch && industryMatch && regionMatch && platformStatusMatch && source.toLowerCase().includes(search);
+    if (!search) return levelMatch && industryMatch && regionMatch;
+    const fields = ['name', 'level', 'group', 'parentName', 'industry', 'subIndustry', 'region', 'established', 'assets', 'revenue', 'employees', 'creditRating', 'listingPlatform', 'stockCode', 'business'];
+    const source = state.attribute === 'all' ? fields.map((field) => item[field]).join(' ') : String(item[state.attribute] ?? '');
+    return levelMatch && industryMatch && regionMatch && source.toLowerCase().includes(search);
+  }
+
+  function enterpriseSummary(item) {
+    const values = [item.industry, item.region, item.assets].filter(available);
+    return values.length ? values.join(' · ') : item.level;
   }
 
   function renderSearchResults() {
     const matches = graph.enterprises.filter(matchesEnterprise);
     $('#resultCount').textContent = `共 ${matches.length} 家企业`;
-    $('#resultList').innerHTML = matches.slice(0, 10).map((item) => `<button class="result-card" data-id="${escapeHtml(item.id)}"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.industry)} · ${escapeHtml(item.dataPlatformStatus)} · ${escapeHtml(item.dataPlatform)}</span></button>`).join('') || '<p class="empty-chip">未找到匹配企业</p>';
+    $('#resultList').innerHTML = matches.slice(0, 10).map((item) => `<button class="result-card" data-id="${escapeHtml(item.id)}"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(enterpriseSummary(item))}</span></button>`).join('') || '<p class="empty-chip">未找到匹配企业</p>';
     $$('#resultList .result-card').forEach((button) => button.addEventListener('click', () => focusEnterprise(button.dataset.id)));
     const suggestionHost = $('#searchSuggestions');
     const searchMatches = state.search.trim() ? matches.slice(0, 6) : [];
@@ -138,7 +143,7 @@
       const dim = (selectedSet && !selectedSet.has(node.id)) || (typeFilter && type !== typeFilter); const color = palette[type] || palette.other; const selected = state.selectedId === node.id || hovering === node.id;
       ctx.save(); ctx.globalAlpha = dim ? .14 : 1; ctx.shadowBlur = selected ? 25 : 12; ctx.shadowColor = color;
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      if (['industry', 'region', 'listing', 'platform', 'sap'].includes(type)) { ctx.fillStyle = '#071034'; ctx.fill(); ctx.lineWidth = selected ? 3 : 2; ctx.strokeStyle = color; ctx.stroke(); }
+      if (['industry', 'region', 'listing'].includes(type)) { ctx.fillStyle = '#071034'; ctx.fill(); ctx.lineWidth = selected ? 3 : 2; ctx.strokeStyle = color; ctx.stroke(); }
       else { ctx.fillStyle = color; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.72)'; ctx.stroke(); }
       ctx.shadowBlur = 0; const label = node.label || enterprisesById.get(node.id)?.name || node.id;
       if (visibleNodes.length < 150 || viewport.zoom > 1.1 || selected) { ctx.fillStyle = dim ? 'rgba(175,198,225,.25)' : '#dceeff'; ctx.font = `${selected ? 13 : 12}px Microsoft YaHei`; ctx.textAlign = 'center'; ctx.fillText(abbreviate(label, selected ? 24 : 15), p.x, p.y + r + 15); }
@@ -167,9 +172,9 @@
     const rows = [
       ['企业编号', item.id], ['企业层级', item.level], ['所属央企集团', item.group], ['上级单位', item.parentName || '—'], ['大行业', item.industry], ['细分行业', item.subIndustry], ['总部所在地', item.region], ['成立时间', item.established],
       ['资产规模', item.assets], ['资产数据年份', item.assetYear], ['营收规模', item.revenue], ['营收数据年份', item.revenueYear], ['员工人数', item.employees], ['主体信用评级', item.creditRating], ['上市平台', item.listingPlatform], ['股票代码', item.stockCode], ['主营业务', item.business],
-      ['大数据平台结论', item.dataPlatform], ['平台证据状态', item.dataPlatformStatus], ['SAP使用状态', item.sapStatus], ['SAP产品', item.sapProducts], ['应用场景', item.sapScenario], ['项目时间', item.projectTime],
     ];
-    $('#detailContent').innerHTML = `<h2 class="detail-title">${escapeHtml(item.name)}</h2><div class="detail-badges"><span class="badge ${badgeClass}">${escapeHtml(item.level)}</span><span class="badge industry">${escapeHtml(item.industry)}</span></div>${['group', 'secondary'].includes(item.type) ? `<div class="detail-actions"><button data-action="toggle">${state.expandedIds.has(item.id) ? '收起下一级' : '展开下一级'}</button><button data-action="path">高亮组织路径</button></div>` : '<div class="detail-actions"><button data-action="path">高亮组织路径</button></div>'}<dl class="detail-grid">${rows.map(([label, value]) => `<div class="detail-row"><dt>${label}</dt><dd class="${available(value) && ['资产规模', '营收规模', '总部所在地'].includes(label) ? 'emphasis' : ''}">${escapeHtml(value)}</dd></div>`).join('')}</dl><div class="source-note">直接下级：${childCount ? `${childCount} 家` : '暂无下级单位'}</div>`;
+    const visibleRows = rows.filter(([_, value]) => available(value));
+    $('#detailContent').innerHTML = `<h2 class="detail-title">${escapeHtml(item.name)}</h2><div class="detail-badges"><span class="badge ${badgeClass}">${escapeHtml(item.level)}</span><span class="badge industry">${escapeHtml(item.industry)}</span></div>${['group', 'secondary'].includes(item.type) ? `<div class="detail-actions"><button data-action="toggle">${state.expandedIds.has(item.id) ? '收起下一级' : '展开下一级'}</button><button data-action="path">高亮组织路径</button></div>` : '<div class="detail-actions"><button data-action="path">高亮组织路径</button></div>'}<dl class="detail-grid">${visibleRows.map(([label, value]) => `<div class="detail-row"><dt>${label}</dt><dd class="${['资产规模', '营收规模', '总部所在地'].includes(label) ? 'emphasis' : ''}">${escapeHtml(value)}</dd></div>`).join('')}</dl><div class="source-note">直接下级：${childCount ? `${childCount} 家` : '暂无下级单位'}</div>`;
     $$('#detailContent [data-action]').forEach((button) => button.addEventListener('click', () => { if (button.dataset.action === 'toggle') toggleExpansion(item.id); else { state.selectedId = item.id; renderGraph(); focusNode(item.id); } }));
   }
 
@@ -177,11 +182,11 @@
 
   function renderTable() {
     if (state.view !== 'table') return;
-    const headers = [['name', '企业名称'], ['level', '企业层级'], ['group', '所属集团'], ['parentName', '上级单位'], ['industry', '行业'], ['dataPlatform', '大数据平台'], ['dataPlatformStatus', '平台证据状态'], ['region', '地区'], ['assets', '资产规模'], ['revenue', '营收规模'], ['employees', '员工人数'], ['creditRating', '信用评级'], ['listingPlatform', '上市平台'], ['sapProducts', 'SAP/HANA']];
+    const headers = [['name', '企业名称'], ['level', '企业层级'], ['group', '所属集团'], ['parentName', '上级单位'], ['industry', '行业'], ['region', '地区'], ['assets', '资产规模'], ['revenue', '营收规模'], ['employees', '员工人数'], ['creditRating', '信用评级'], ['listingPlatform', '上市平台']];
     const rows = graph.enterprises.filter(matchesEnterprise).sort((a, b) => String(a[state.sortKey] || '').localeCompare(String(b[state.sortKey] || ''), 'zh-CN') * state.sortDirection);
     const total = Math.max(1, Math.ceil(rows.length / state.pageSize)); state.page = Math.min(state.page, total);
     $('#enterpriseTable thead').innerHTML = `<tr>${headers.map(([key, label]) => `<th data-sort="${key}">${label}${state.sortKey === key ? (state.sortDirection === 1 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr>`;
-    $('#enterpriseTable tbody').innerHTML = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize).map((item) => `<tr data-id="${escapeHtml(item.id)}">${headers.map(([key]) => `<td>${escapeHtml(item[key])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${headers.length}" class="muted">未找到匹配企业</td></tr>`;
+    $('#enterpriseTable tbody').innerHTML = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize).map((item) => `<tr data-id="${escapeHtml(item.id)}">${headers.map(([key]) => `<td>${available(item[key]) ? escapeHtml(item[key]) : '—'}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${headers.length}" class="muted">未找到匹配企业</td></tr>`;
     $('#pagination').innerHTML = Array.from({ length: total }, (_, index) => `<button class="${state.page === index + 1 ? 'active' : ''}" data-page="${index + 1}">${index + 1}</button>`).join('');
     $$('#enterpriseTable th').forEach((header) => header.addEventListener('click', () => { const key = header.dataset.sort; state.sortDirection = state.sortKey === key ? -state.sortDirection : 1; state.sortKey = key; renderTable(); }));
     $$('#enterpriseTable tbody tr[data-id]').forEach((row) => row.addEventListener('click', () => focusEnterprise(row.dataset.id)));
@@ -215,7 +220,7 @@
   $('#expandAll').addEventListener('click', () => { graph.enterprises.forEach((item) => { if (graph.enterprises.some((child) => child.parentId === item.id)) state.expandedIds.add(item.id); }); renderGraph(); });
   $('#collapseAll').addEventListener('click', () => { state.expandedIds.clear(); renderGraph(); });
   $('#fitView').addEventListener('click', fitGraph);
-  $('#resetView').addEventListener('click', () => { state.expandedIds.clear(); state.levels.clear(); state.industries.clear(); state.regions.clear(); state.platformStatuses.clear(); state.search = ''; state.selectedId = ''; $('#searchInput').value = ''; renderControls(); renderGraph(); setTimeout(fitGraph, 50); $('#detailContent').innerHTML = '<div class="detail-empty"><span>◎</span><h2>企业详情</h2><p>选择图谱节点或查询结果以查看企业信息。</p></div>'; });
+  $('#resetView').addEventListener('click', () => { state.expandedIds.clear(); state.levels.clear(); state.industries.clear(); state.regions.clear(); state.search = ''; state.selectedId = ''; $('#searchInput').value = ''; renderControls(); renderGraph(); setTimeout(fitGraph, 50); $('#detailContent').innerHTML = '<div class="detail-empty"><span>◎</span><h2>企业详情</h2><p>选择图谱节点或查询结果以查看企业信息。</p></div>'; });
   $$('.panel-collapse').forEach((button) => button.addEventListener('click', () => { $('#appShell').classList.toggle(`${button.dataset.collapse}-collapsed`); setTimeout(() => { ensureCanvasSize(); renderGraph(); fitGraph(); }, 260); }));
   $$('.legend button').forEach((button) => { button.addEventListener('mouseenter', () => { state.hoveredType = button.dataset.legend; draw(); }); button.addEventListener('mouseleave', () => { state.hoveredType = ''; draw(); }); });
   window.addEventListener('resize', () => { ensureCanvasSize(); draw(); });

@@ -27,8 +27,7 @@
       const path = findAncestorPath(graph.enterprises, enterprise.id);
       if (path.slice(0, -1).every((id) => expandedIds.has(id))) includePath(enterprise);
     });
-    graph.nodes.filter((node) => ['industry', 'region', 'listing', 'sap'].includes(node.type)).forEach((node) => visible.add(node.id));
-    graph.edges.filter((edge) => edge.relation === '使用/建设大数据平台' && visible.has(edge.source) && expandedIds.has(edge.source)).forEach((edge) => visible.add(edge.target));
+    graph.nodes.filter((node) => ['industry', 'region', 'listing'].includes(node.type)).forEach((node) => visible.add(node.id));
     return [...visible];
   }
   window.CEC_UI = { findAncestorPath, getVisibleNodeIds };
